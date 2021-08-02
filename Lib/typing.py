@@ -1945,24 +1945,24 @@ class _TypedDictMeta(type):
         required_keys = set()
         optional_keys = set()
 
-        for obase in ns['__orig_bases__']:
-            base = obase.__dict__.get("__origin__")
-            if type(base) is not _TypedDictMeta:
+        for base in ns.get("__orig_bases__", bases):
+            origin = base.__dict__.get("__origin__", base)
+            if type(origin) is not _TypedDictMeta:
                 continue
 
-            params = base.__dict__.get("__parameters__", [])
-            args = obase.__dict__.get("__args__", [])
+            params = origin.__dict__.get("__parameters__", [])
+            args = base.__dict__.get("__args__", [])
             tvarmap = dict(zip(params, args))
 
             # Inherit typeargs applied annotations from parent TypedDicts
-            base_annotations = dict(base.__dict__.get('__annotations__', {}))
+            base_annotations = dict(origin.__dict__.get('__annotations__', {}))
             for anot_key, anot_val in base_annotations.items():
                 new_anot_val = _generic_alias_apply_tvarmap(anot_val, tvarmap)
                 base_annotations[anot_key] = new_anot_val
 
             annotations.update(base_annotations)
-            required_keys.update(base.__dict__.get('__required_keys__', ()))
-            optional_keys.update(base.__dict__.get('__optional_keys__', ()))
+            required_keys.update(origin.__dict__.get('__required_keys__', ()))
+            optional_keys.update(origin.__dict__.get('__optional_keys__', ()))
 
         annotations.update(own_annotations)
         if total:
