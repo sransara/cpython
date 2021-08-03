@@ -1903,24 +1903,15 @@ def _generic_alias_apply_tvarmap(alias, tvarmap):
     """
     if isinstance(alias, TypeVar) and alias in tvarmap:
         return tvarmap[alias]
-    elif isinstance(alias, GenericAlias):
-        return GenericAlias(
-            alias.__origin__,
-            tuple(
-                _generic_alias_apply_tvarmap(arg, tvarmap)
-                for arg in alias.__args__
-            )
-        )
-    elif isinstance(alias, _GenericAlias):
-        return alias.copy_with([
-            _generic_alias_apply_tvarmap(arg, tvarmap)
-            for arg in alias.__args__
-        ])
+    elif isinstance(alias, (GenericAlias, _GenericAlias)):
+        args = tuple(tvarmap.get(param, param)
+                for param in alias.__parameters__)
+        return alias[args]
     else:
         return alias
 
 class _TypedDictMeta(type):
-    def __new__(cls, name, bases, ns, total=True):
+    def __new__(cls, name, bases, ns, args=None, total=True):
         """Create new typed dict class object.
 
         This method is called when TypedDict is subclassed,
@@ -1938,31 +1929,22 @@ class _TypedDictMeta(type):
         own_annotations = ns.get('__annotations__', {})
         own_annotation_keys = set(own_annotations.keys())
         msg = "TypedDict('Name', {f0: t0, f1: t1, ...}); each t must be a type"
+
+        params = ns.get("__parameters__")
+        tvarmap = dict(zip(params or [], args or []))
         own_annotations = {
-            n: _type_check(tp, msg, module=tp_dict.__module__)
+            n: _generic_alias_apply_tvarmap(
+                _type_check(tp, msg, module=tp_dict.__module__), 
+                tvarmap)
             for n, tp in own_annotations.items()
         }
         required_keys = set()
         optional_keys = set()
 
         for base in ns.get("__orig_bases__", bases):
-            origin = base.__dict__.get("__origin__", base)
-            if type(origin) is not _TypedDictMeta:
-                continue
-
-            params = origin.__dict__.get("__parameters__", [])
-            args = base.__dict__.get("__args__", [])
-            tvarmap = dict(zip(params, args))
-
-            # Inherit typeargs applied annotations from parent TypedDicts
-            base_annotations = dict(origin.__dict__.get('__annotations__', {}))
-            for anot_key, anot_val in base_annotations.items():
-                new_anot_val = _generic_alias_apply_tvarmap(anot_val, tvarmap)
-                base_annotations[anot_key] = new_anot_val
-
-            annotations.update(base_annotations)
-            required_keys.update(origin.__dict__.get('__required_keys__', ()))
-            optional_keys.update(origin.__dict__.get('__optional_keys__', ()))
+            annotations.update(base.__dict__.get('__annotations__', {}))
+            required_keys.update(base.__dict__.get('__required_keys__', ()))
+            optional_keys.update(base.__dict__.get('__optional_keys__', ()))
 
         annotations.update(own_annotations)
         if total:
@@ -1985,6 +1967,12 @@ class _TypedDictMeta(type):
 
     __instancecheck__ = __subclasscheck__
 
+    def __getitem__(self, params):
+        if not isinstance(params, tuple):
+            params = (params, )
+        cls = type(self)
+        return GenericAlias(cls(self.__name__, self.__bases__, dict(self.__dict__), 
+            args=params, total=self.__total__), params)
 
 def TypedDict(typename, fields=None, /, *, total=True, **kwargs):
     """A simple typed namespace. At runtime it is equivalent to a plain dict.
