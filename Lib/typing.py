@@ -1901,7 +1901,7 @@ def _generic_alias_apply_tvarmap(alias, tvarmap):
     Given alias: GenericAlias like list[list[T]] with tvarmap: { T: str }
     returns list[list[str]]
     """
-    if alias in tvarmap:
+    if isinstance(alias, TypeVar) and alias in tvarmap:
         return tvarmap[alias]
     elif isinstance(alias, GenericAlias):
         return GenericAlias(
